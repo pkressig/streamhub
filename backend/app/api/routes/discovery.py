@@ -84,12 +84,17 @@ def list_runs(db: Session = Depends(get_db)):
 
 @router.post("/runs", response_model=DiscoveryRunOut, status_code=201)
 def trigger_run(db: Session = Depends(get_db)):
-    from app.worker.tasks import run_discovery
+    from app.worker.discovery_tasks import run_discovery
     run = DiscoveryRun(status="pending")
     db.add(run)
     db.commit()
     db.refresh(run)
-    run_discovery.delay(str(run.id))
+    try:
+        run_discovery.delay(str(run.id))
+    except Exception as e:
+        run.status = "failed"
+        run.notes = f"Failed to dispatch task: {e}"
+        db.commit()
     return run
 
 
@@ -122,7 +127,7 @@ def test_discovered(source_id: str, db: Session = Depends(get_db)):
     s = db.query(DiscoveredSource).filter(DiscoveredSource.id == uuid.UUID(source_id)).first()
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
-    from app.worker.tasks import test_discovered_source
+    from app.worker.discovery_tasks import test_discovered_source
     test_discovered_source.delay(source_id)
     return s
 
@@ -132,7 +137,7 @@ def benchmark_discovered(source_id: str, db: Session = Depends(get_db)):
     s = db.query(DiscoveredSource).filter(DiscoveredSource.id == uuid.UUID(source_id)).first()
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
-    from app.worker.tasks import benchmark_discovered_source
+    from app.worker.discovery_tasks import benchmark_discovered_source
     benchmark_discovered_source.delay(source_id)
     return s
 
