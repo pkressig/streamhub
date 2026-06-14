@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from app.config import settings
 
 celery_app = Celery(
@@ -18,6 +19,10 @@ celery_app.conf.update(
         "monitor-sources-every-15-minutes": {
             "task": "app.worker.tasks.monitor_sources",
             "schedule": 900.0,
+        },
+        "nightly-benchmark": {
+            "task": "app.worker.tasks.nightly_benchmark",
+            "schedule": crontab(hour=2, minute=0),  # 02:00 UTC every night
         },
     },
 )

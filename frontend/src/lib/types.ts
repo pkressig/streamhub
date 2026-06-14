@@ -1,5 +1,7 @@
 export type SourceType = 'torznab' | 'newznab' | 'rss' | 'manifest' | 'generic_http';
 export type SourceStatus = 'unknown' | 'active' | 'degraded' | 'dead';
+export type Category = 'movie' | 'series' | 'anime';
+export type LanguageTarget = 'ita' | 'ger' | 'multi';
 
 export interface SourceScore {
   id: string;
@@ -57,4 +59,79 @@ export interface Stats {
   unknown: number;
   avg_overall_score: number;
   recent_tests: SourceTest[];
+}
+
+// ── Benchmark ────────────────────────────────────────────────────────────────
+
+export interface BenchmarkTitle {
+  id: string;
+  title: string;
+  imdb_id: string | null;
+  tmdb_id: string | null;
+  category: Category;
+  language_target: LanguageTarget;
+  year: number | null;
+  created_at: string;
+}
+
+export interface BenchmarkTitleCreate {
+  title: string;
+  imdb_id?: string;
+  tmdb_id?: string;
+  category: Category;
+  language_target: LanguageTarget;
+  year?: number;
+}
+
+export interface BenchmarkResult {
+  id: string;
+  source_id: string;
+  benchmark_id: string;
+  run_id: string | null;
+  success: boolean;
+  result_count: number;
+  response_time_ms: number | null;
+  duplicate_count: number;
+  tested_at: string;
+}
+
+export interface BenchmarkRun {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  sources_tested: number;
+  titles_tested: number;
+  notes: string | null;
+}
+
+export interface ImportResponse {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
+export interface SourceProfile {
+  source_id: string;
+  movie_score: number;
+  series_score: number;
+  anime_score: number;
+  italian_score: number;
+  german_score: number;
+  avg_result_count: number;
+  avg_response_ms: number | null;
+  reliability_pct: number;
+  duplicate_rate: number;
+  benchmark_runs: number;
+  last_profiled: string | null;
+}
+
+export interface RankedSource {
+  id: string;
+  name: string;
+  url: string;
+  source_type: SourceType;
+  status: SourceStatus;
+  score: number;
+  profile: SourceProfile | null;
 }
