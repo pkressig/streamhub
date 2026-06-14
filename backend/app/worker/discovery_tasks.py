@@ -275,11 +275,11 @@ def test_discovered_source(source_id: str):
 
 
 @celery_app.task(name="app.worker.tasks.benchmark_discovered_source")
-def benchmark_discovered_source(source_id: str):
-    """Mini benchmark (5 ITA + 5 GER) — skips generic_http and low-confidence sources."""
-    from app.models.discovery import DiscoveredSource
-    from app.models.benchmark import BenchmarkTitle
-    from app.benchmarking.searcher import search_source
+def benchmark_discovered_source(source_id: str, mini: bool = True):
+    """Real content benchmark using stream/search endpoints with language detection."""
+    from app.models.discovery import DiscoveredSource, DiscoveryBenchmarkResult
+    from app.discovery.benchmarker import benchmark_source
+    from datetime import timedelta
 
     db = SessionLocal()
     try:
@@ -287,41 +287,81 @@ def benchmark_discovered_source(source_id: str):
         if not ds:
             return {"error": "not found"}
 
-        # Skip generic_http or low-confidence — they won't produce meaningful results
-        if ds.detected_type == "generic_http" or (ds.confidence is not None and ds.confidence < 60):
-            ds.notes = (ds.notes or "") + " [skipped benchmark: generic_http or low confidence]"
-            db.commit()
-            return {"skipped": True, "reason": "generic_http_or_low_confidence"}
+        # Rate limit: max once per hour
+        if ds.last_benchmark_at and (datetime.utcnow() - ds.last_benchmark_at) < timedelta(hours=1):
+            return {"skipped": "rate_limited", "last_at": str(ds.last_benchmark_at)}
 
-        ita_titles = db.query(BenchmarkTitle).filter(BenchmarkTitle.language_target == "ita").limit(5).all()
-        ger_titles = db.query(BenchmarkTitle).filter(BenchmarkTitle.language_target == "ger").limit(5).all()
-
-        if not ita_titles and not ger_titles:
-            ds.notes = "No benchmark titles available"
-            db.commit()
-            return {"error": "no benchmark titles"}
-
-        ita_hits = sum(
-            1 for t in ita_titles
-            if (r := _run(search_source(ds.detected_type, ds.url, t.title, None))).success and r.result_count > 0
-        )
-        ger_hits = sum(
-            1 for t in ger_titles
-            if (r := _run(search_source(ds.detected_type, ds.url, t.title, None))).success and r.result_count > 0
-        )
-
-        ita_score = (ita_hits / len(ita_titles) * 100) if ita_titles else 0.0
-        ger_score = (ger_hits / len(ger_titles) * 100) if ger_titles else 0.0
-        overall = (ita_score + ger_score) / 2 if (ita_titles and ger_titles) else max(ita_score, ger_score)
-
-        ds.italian_score = round(ita_score, 1)
-        ds.german_score = round(ger_score, 1)
-        ds.overall_score = round(overall, 1)
-        ds.status = "benchmarked"
-        ds.benchmarked_at = datetime.utcnow()
+        ds.status = "testing"
         db.commit()
 
-        return {"ita_score": ds.italian_score, "ger_score": ds.german_score, "overall_score": ds.overall_score}
+        result = _run(benchmark_source(ds.url, ds.detected_type, mini=mini))
+
+        bm = DiscoveryBenchmarkResult(
+            source_id=ds.id,
+            is_online=result.is_online,
+            response_ms=result.response_ms,
+            total_results=result.total_results,
+            italian_results=result.italian_results,
+            german_results=result.german_results,
+            english_results=result.english_results,
+            anime_results=result.anime_results,
+            dubbed_results=result.dubbed_results,
+            results_4k=result.results_4k,
+            results_1080p=result.results_1080p,
+            results_720p=result.results_720p,
+            has_debrid_links=result.has_debrid_links,
+            italian_score=result.italian_score,
+            german_score=result.german_score,
+            anime_score=result.anime_score,
+            overall_score=result.overall_score,
+            test_queries_run=result.test_queries_run,
+            raw_sample=result.raw_sample,
+        )
+        db.add(bm)
+
+        ds.italian_score = result.italian_score
+        ds.german_score = result.german_score
+        ds.overall_score = result.overall_score
+        ds.anime_score = result.anime_score
+        ds.last_benchmark_at = datetime.utcnow()
+        ds.benchmarked_at = datetime.utcnow()
+        ds.status = "benchmarked"
+
+        if ds.best_italian_score is None or result.italian_score > ds.best_italian_score:
+            ds.best_italian_score = result.italian_score
+        if ds.best_german_score is None or result.german_score > ds.best_german_score:
+            ds.best_german_score = result.german_score
+        if ds.best_overall_score is None or result.overall_score > ds.best_overall_score:
+            ds.best_overall_score = result.overall_score
+
+        db.flush()
+
+        # Auto-flag low scorers after 3 runs
+        run_count = db.query(DiscoveryBenchmarkResult).filter(
+            DiscoveryBenchmarkResult.source_id == ds.id
+        ).count()
+        if run_count >= 3 and (ds.best_overall_score or 0) < 20:
+            if ds.status not in ("approved", "active", "imported", "ignored", "rejected"):
+                ds.notes = (ds.notes or "") + " [auto-flagged: low score ×3]"
+
+        db.commit()
+        return {
+            "italian_score": result.italian_score,
+            "german_score": result.german_score,
+            "anime_score": result.anime_score,
+            "overall_score": result.overall_score,
+            "total_results": result.total_results,
+            "is_online": result.is_online,
+        }
+    except Exception as e:
+        try:
+            ds2 = db.query(DiscoveredSource).filter(DiscoveredSource.id == uuid.UUID(source_id)).first()
+            if ds2 and ds2.status == "testing":
+                ds2.status = "candidate"
+                db.commit()
+        except Exception:
+            pass
+        raise
     finally:
         db.close()
 

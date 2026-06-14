@@ -5,19 +5,22 @@ import { DiscoveryStats, DiscoveryRun, DiscoverySeed, DiscoveredSource, Discover
 import { Header } from '@/components/layout/Header';
 import {
   Search, Plus, Trash2, RefreshCw, Play, Clock, CheckCircle, XCircle,
-  Loader2, ExternalLink, Download, EyeOff, Zap, ShieldX, Sparkles, GitBranch,
+  Loader2, ExternalLink, Download, EyeOff, Zap, ShieldX, Sparkles, GitBranch, Ban,
 } from 'lucide-react';
 
-type MainTab = 'useful' | 'generic' | 'rejected' | 'seeds' | 'runs';
+type MainTab = 'useful' | 'approved' | 'generic' | 'rejected' | 'seeds' | 'runs';
 
 const STATUS_COLORS: Record<string, string> = {
   candidate: 'bg-gray-500/20 text-gray-400',
-  tested: 'bg-blue-500/20 text-blue-400',
-  benchmarked: 'bg-purple-500/20 text-purple-400',
-  approved: 'bg-green-500/20 text-green-400',
-  imported: 'bg-teal-500/20 text-teal-400',
-  ignored: 'bg-gray-500/10 text-gray-600',
-  dead: 'bg-red-500/20 text-red-400',
+  testing:   'bg-blue-500/20 text-blue-300',
+  tested:    'bg-blue-500/20 text-blue-400',
+  benchmarked:'bg-purple-500/20 text-purple-400',
+  approved:  'bg-green-500/20 text-green-400',
+  active:    'bg-emerald-500/20 text-emerald-400',
+  imported:  'bg-teal-500/20 text-teal-400',
+  ignored:   'bg-gray-500/10 text-gray-600',
+  rejected:  'bg-red-600/20 text-red-400',
+  dead:      'bg-red-500/20 text-red-400',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -72,6 +75,32 @@ function ScoreCell({ value }: { value: number | null | undefined }) {
   return <span className={`text-sm font-semibold ${color}`}>{value.toFixed(0)}</span>;
 }
 
+function ScoreBadges({ s }: { s: DiscoveredSource }) {
+  const ita = s.best_italian_score ?? s.italian_score;
+  const ger = s.best_german_score ?? s.german_score;
+  const anime = s.anime_score;
+  if (ita == null && ger == null && anime == null) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-0.5">
+      {ita != null && ita > 0 && (
+        <span className={`text-xs px-1 py-0.5 rounded font-mono ${ita >= 60 ? 'bg-green-600/40 text-green-300' : 'bg-gray-700 text-gray-400'}`}>
+          {ita >= 60 ? '🇮🇹 ' : ''}ITA {ita.toFixed(0)}
+        </span>
+      )}
+      {ger != null && ger > 0 && (
+        <span className={`text-xs px-1 py-0.5 rounded font-mono ${ger >= 60 ? 'bg-yellow-600/40 text-yellow-300' : 'bg-gray-700 text-gray-400'}`}>
+          {ger >= 60 ? '🇩🇪 ' : ''}GER {ger.toFixed(0)}
+        </span>
+      )}
+      {anime != null && anime > 0 && (
+        <span className="text-xs px-1 py-0.5 rounded font-mono bg-gray-700 text-gray-400">
+          🎌 {anime.toFixed(0)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function RunStatusIcon({ status }: { status: string }) {
   if (status === 'running') return <Loader2 size={12} className="animate-spin text-blue-400" />;
   if (status === 'completed') return <CheckCircle size={12} className="text-green-400" />;
@@ -106,45 +135,75 @@ function StatsRow({ stats }: { stats: DiscoveryStats }) {
 
 // ── Candidates Table ──────────────────────────────────────────────────────────
 
+type SortKey = 'discovered_at' | 'italian_score' | 'german_score' | 'overall_score';
+
 function CandidatesTab({
-  sources, showGeneric, onRefresh,
-}: { sources: DiscoveredSource[]; showGeneric: boolean; onRefresh: () => void }) {
+  sources, showGeneric, approvedOnly, onRefresh,
+}: { sources: DiscoveredSource[]; showGeneric: boolean; approvedOnly?: boolean; onRefresh: () => void }) {
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [minIta, setMinIta] = useState('');
+  const [minGer, setMinGer] = useState('');
+  const [sortBy, setSortBy] = useState<SortKey>('discovered_at');
 
-  const filtered = sources.filter(s => {
-    const isGeneric = s.detected_type === 'generic_http' && (s.confidence ?? 0) < 75;
-    if (showGeneric ? !isGeneric : isGeneric) return false;
-    if (statusFilter && s.status !== statusFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!s.url.toLowerCase().includes(q) && !(s.name?.toLowerCase().includes(q))) return false;
-    }
-    return true;
-  });
+  const filtered = sources
+    .filter(s => {
+      const isGeneric = !USEFUL_TYPES.has(s.detected_type);
+      if (!approvedOnly) {
+        if (showGeneric ? !isGeneric : isGeneric) return false;
+      }
+      if (approvedOnly && !['benchmarked','approved','active','imported'].includes(s.status)) return false;
+      if (statusFilter && s.status !== statusFilter) return false;
+      if (minIta && (s.best_italian_score ?? s.italian_score ?? 0) < Number(minIta)) return false;
+      if (minGer && (s.best_german_score ?? s.german_score ?? 0) < Number(minGer)) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!s.url.toLowerCase().includes(q) && !(s.name?.toLowerCase().includes(q))) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'italian_score') return (b.best_italian_score ?? b.italian_score ?? 0) - (a.best_italian_score ?? a.italian_score ?? 0);
+      if (sortBy === 'german_score')  return (b.best_german_score  ?? b.german_score  ?? 0) - (a.best_german_score  ?? a.german_score  ?? 0);
+      if (sortBy === 'overall_score') return (b.best_overall_score ?? b.overall_score ?? 0) - (a.best_overall_score ?? a.overall_score ?? 0);
+      return new Date(b.discovered_at).getTime() - new Date(a.discovered_at).getTime();
+    });
 
   const act = async (id: string, action: () => Promise<unknown>) => {
     setActingOn(id);
     try { await action(); onRefresh(); } finally { setActingOn(null); }
   };
 
+  const sel = 'bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none';
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <input
-          className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-52"
+          className="bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-48"
           placeholder="Search URL or name…"
           value={search} onChange={e => setSearch(e.target.value)}
         />
-        <select
-          className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none"
-          value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-        >
-          <option value="">All Status</option>
-          {['candidate','tested','benchmarked','approved','imported','ignored','dead'].map(s => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+        {!approvedOnly && (
+          <select className={sel} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="">All Status</option>
+            {['candidate','testing','tested','benchmarked','approved','active','imported','ignored','rejected','dead'].map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        )}
+        <input type="number" min="0" max="100" placeholder="ITA ≥"
+          className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none w-20"
+          value={minIta} onChange={e => setMinIta(e.target.value)} />
+        <input type="number" min="0" max="100" placeholder="GER ≥"
+          className="bg-gray-900 border border-gray-700 rounded px-2 py-1.5 text-sm text-gray-300 focus:outline-none w-20"
+          value={minGer} onChange={e => setMinGer(e.target.value)} />
+        <select className={sel} value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
+          <option value="discovered_at">Sort: Newest</option>
+          <option value="italian_score">Sort: ITA score</option>
+          <option value="german_score">Sort: GER score</option>
+          <option value="overall_score">Sort: Overall</option>
         </select>
         <span className="text-xs text-gray-500">{filtered.length} sources</span>
       </div>
@@ -152,8 +211,8 @@ function CandidatesTab({
       {filtered.length === 0 ? (
         <div className="text-center py-12 text-gray-500">
           <Search size={32} className="mx-auto mb-3 opacity-30" />
-          <p>{showGeneric ? 'No generic HTTP candidates.' : 'No useful typed sources yet.'}</p>
-          <p className="text-xs mt-1">Add seeds and run discovery to find sources.</p>
+          <p>{approvedOnly ? 'No approved sources yet.' : showGeneric ? 'No generic HTTP candidates.' : 'No useful typed sources yet.'}</p>
+          <p className="text-xs mt-1">{approvedOnly ? 'Benchmark and approve sources to see them here.' : 'Add seeds and run discovery to find sources.'}</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -162,10 +221,8 @@ function CandidatesTab({
               <tr className="text-left text-gray-400 border-b border-gray-700">
                 <th className="pb-2 font-medium">URL / Name</th>
                 <th className="pb-2 font-medium">Type</th>
-                <th className="pb-2 font-medium">Confidence</th>
+                <th className="pb-2 font-medium">Scores</th>
                 <th className="pb-2 font-medium">Status</th>
-                <th className="pb-2 font-medium text-right">ITA</th>
-                <th className="pb-2 font-medium text-right">GER</th>
                 <th className="pb-2 font-medium text-right">ms</th>
                 <th className="pb-2"></th>
               </tr>
@@ -180,17 +237,23 @@ function CandidatesTab({
                       <span className="truncate max-w-[200px]">{s.url}</span>
                       <ExternalLink size={9} />
                     </a>
-                    {s.detection_reason && (
-                      <div className="text-xs text-gray-600 truncate mt-0.5 max-w-[220px]" title={s.detection_reason}>
-                        {s.detection_reason}
-                      </div>
+                    <ScoreBadges s={s} />
+                    {s.reject_reason && (
+                      <div className="text-xs text-red-500 mt-0.5 truncate" title={s.reject_reason}>{s.reject_reason}</div>
                     )}
                   </td>
                   <td className="py-2 pr-3"><TypeBadge type={s.detected_type} /></td>
-                  <td className="py-2 pr-3"><ConfidenceBar value={s.confidence} /></td>
+                  <td className="py-2 pr-3">
+                    <div className="flex items-center gap-2">
+                      <ConfidenceBar value={s.confidence} />
+                    </div>
+                    {s.overall_score != null && (
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        ∑ <span className={s.overall_score >= 40 ? 'text-green-400' : 'text-gray-400'}>{s.overall_score.toFixed(0)}</span>
+                      </div>
+                    )}
+                  </td>
                   <td className="py-2 pr-3"><StatusBadge status={s.status} /></td>
-                  <td className="py-2 pr-3 text-right"><ScoreCell value={s.italian_score} /></td>
-                  <td className="py-2 pr-3 text-right"><ScoreCell value={s.german_score} /></td>
                   <td className="py-2 pr-3 text-right text-xs text-gray-500">
                     {s.response_time_ms != null ? s.response_time_ms.toFixed(0) : '—'}
                   </td>
@@ -198,19 +261,19 @@ function CandidatesTab({
                     <div className="flex items-center gap-1 justify-end">
                       {s.status === 'candidate' && (
                         <button onClick={() => act(s.id, () => api.testDiscoveredSource(s.id))}
-                          disabled={actingOn === s.id} title="Test"
+                          disabled={actingOn === s.id} title="Quick test"
                           className="p-1 text-gray-500 hover:text-blue-400 transition-colors disabled:opacity-40">
                           <Zap size={13} />
                         </button>
                       )}
-                      {s.status === 'tested' && USEFUL_TYPES.has(s.detected_type) && (
+                      {['tested','benchmarked','candidate'].includes(s.status) && USEFUL_TYPES.has(s.detected_type) && (
                         <button onClick={() => act(s.id, () => api.benchmarkDiscoveredSource(s.id))}
-                          disabled={actingOn === s.id} title="Benchmark"
+                          disabled={actingOn === s.id} title="Run benchmark"
                           className="p-1 text-gray-500 hover:text-purple-400 transition-colors disabled:opacity-40">
                           <Play size={13} />
                         </button>
                       )}
-                      {s.status === 'benchmarked' && (
+                      {['benchmarked','tested'].includes(s.status) && (
                         <button onClick={() => act(s.id, () => api.approveDiscoveredSource(s.id))}
                           disabled={actingOn === s.id} title="Approve"
                           className="p-1 text-gray-500 hover:text-green-400 transition-colors disabled:opacity-40">
@@ -219,12 +282,19 @@ function CandidatesTab({
                       )}
                       {s.status === 'approved' && (
                         <button onClick={() => act(s.id, () => api.importDiscoveredSource(s.id))}
-                          disabled={actingOn === s.id} title="Import to Sources"
+                          disabled={actingOn === s.id} title="Import to Active Sources"
                           className="p-1 text-gray-500 hover:text-teal-400 transition-colors disabled:opacity-40">
                           <Download size={13} />
                         </button>
                       )}
-                      {!['ignored','imported','dead'].includes(s.status) && (
+                      {!['ignored','imported','dead','rejected'].includes(s.status) && (
+                        <button onClick={() => act(s.id, () => api.rejectDiscoveredSource(s.id, 'manual reject'))}
+                          disabled={actingOn === s.id} title="Reject"
+                          className="p-1 text-gray-500 hover:text-red-400 transition-colors disabled:opacity-40">
+                          <Ban size={13} />
+                        </button>
+                      )}
+                      {!['ignored','imported','dead','rejected'].includes(s.status) && (
                         <button onClick={() => act(s.id, () => api.ignoreDiscoveredSource(s.id))}
                           disabled={actingOn === s.id} title="Ignore"
                           className="p-1 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40">
@@ -655,15 +725,17 @@ export default function DiscoveryPage() {
     } finally { setTogglingAuto(false); }
   };
 
-  const usefulSources = sources.filter(s => USEFUL_TYPES.has(s.detected_type));
-  const genericSources = sources.filter(s => !USEFUL_TYPES.has(s.detected_type));
+  const usefulSources   = sources.filter(s => USEFUL_TYPES.has(s.detected_type));
+  const genericSources  = sources.filter(s => !USEFUL_TYPES.has(s.detected_type));
+  const approvedSources = sources.filter(s => ['benchmarked','approved','active','imported'].includes(s.status));
 
   const TABS: { key: MainTab; label: string; count?: number }[] = [
-    { key: 'useful', label: 'Useful', count: usefulSources.length },
-    { key: 'generic', label: 'Generic HTTP', count: genericSources.length },
-    { key: 'rejected', label: 'Rejected', count: rejected.length },
-    { key: 'seeds', label: 'Seeds', count: seeds.length },
-    { key: 'runs', label: 'Runs', count: runs.length },
+    { key: 'useful',    label: 'Candidates',  count: usefulSources.length },
+    { key: 'approved',  label: 'Approved',    count: approvedSources.length },
+    { key: 'generic',   label: 'Generic HTTP', count: genericSources.length },
+    { key: 'rejected',  label: 'Rejected',    count: rejected.length },
+    { key: 'seeds',     label: 'Seeds',       count: seeds.length },
+    { key: 'runs',      label: 'Runs',        count: runs.length },
   ];
 
   return (
@@ -760,6 +832,8 @@ export default function DiscoveryPage() {
             <p className="text-gray-500 text-sm animate-pulse">Loading…</p>
           ) : tab === 'useful' ? (
             <CandidatesTab sources={usefulSources} showGeneric={false} onRefresh={load} />
+          ) : tab === 'approved' ? (
+            <CandidatesTab sources={approvedSources} showGeneric={false} approvedOnly onRefresh={load} />
           ) : tab === 'generic' ? (
             <CandidatesTab sources={genericSources} showGeneric={true} onRefresh={load} />
           ) : tab === 'rejected' ? (

@@ -70,9 +70,21 @@ class DiscoveredSource(Base):
     discovered_at = Column(DateTime, default=datetime.utcnow)
     tested_at = Column(DateTime, nullable=True)
     benchmarked_at = Column(DateTime, nullable=True)
+    last_benchmark_at = Column(DateTime, nullable=True)
+    best_italian_score = Column(Float, nullable=True)
+    best_german_score = Column(Float, nullable=True)
+    best_overall_score = Column(Float, nullable=True)
+    anime_score = Column(Float, nullable=True)
+    reject_reason = Column(Text, nullable=True)
 
     run = relationship("DiscoveryRun", back_populates="discovered_sources")
     fingerprint = relationship("SourceFingerprint", back_populates="discovered_source", uselist=False)
+    benchmark_results = relationship(
+        "DiscoveryBenchmarkResult",
+        back_populates="source",
+        order_by="DiscoveryBenchmarkResult.run_at.desc()",
+        cascade="all, delete-orphan",
+    )
 
 
 class SourceFingerprint(Base):
@@ -89,6 +101,34 @@ class SourceFingerprint(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     discovered_source = relationship("DiscoveredSource", back_populates="fingerprint")
+
+
+class DiscoveryBenchmarkResult(Base):
+    __tablename__ = "discovery_benchmark_results"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("discovered_sources.id", ondelete="CASCADE"), nullable=False)
+    run_at = Column(DateTime, default=datetime.utcnow)
+    is_online = Column(Boolean, nullable=False, default=False)
+    response_ms = Column(Integer, nullable=True)
+    total_results = Column(Integer, default=0)
+    italian_results = Column(Integer, default=0)
+    german_results = Column(Integer, default=0)
+    english_results = Column(Integer, default=0)
+    anime_results = Column(Integer, default=0)
+    dubbed_results = Column(Integer, default=0)
+    results_4k = Column(Integer, default=0)
+    results_1080p = Column(Integer, default=0)
+    results_720p = Column(Integer, default=0)
+    has_debrid_links = Column(Boolean, default=False)
+    italian_score = Column(Float, default=0.0)
+    german_score = Column(Float, default=0.0)
+    anime_score = Column(Float, default=0.0)
+    overall_score = Column(Float, default=0.0)
+    test_queries_run = Column(JSONB, nullable=True)
+    raw_sample = Column(JSONB, nullable=True)
+
+    source = relationship("DiscoveredSource", back_populates="benchmark_results")
 
 
 class SourceRelationship(Base):

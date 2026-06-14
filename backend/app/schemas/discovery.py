@@ -58,6 +58,7 @@ class DiscoveredSourceOut(BaseModel):
     italian_score: Optional[float]
     german_score: Optional[float]
     overall_score: Optional[float]
+    anime_score: Optional[float]
     response_time_ms: Optional[float]
     http_status: Optional[int]
     notes: Optional[str]
@@ -65,6 +66,37 @@ class DiscoveredSourceOut(BaseModel):
     discovered_at: Optional[datetime]
     tested_at: Optional[datetime]
     benchmarked_at: Optional[datetime]
+    last_benchmark_at: Optional[datetime]
+    best_italian_score: Optional[float]
+    best_german_score: Optional[float]
+    best_overall_score: Optional[float]
+    reject_reason: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class DiscoveryBenchmarkResultOut(BaseModel):
+    id: UUID
+    source_id: UUID
+    run_at: Optional[datetime]
+    is_online: bool
+    response_ms: Optional[int]
+    total_results: int
+    italian_results: int
+    german_results: int
+    english_results: int
+    anime_results: int
+    dubbed_results: int
+    results_4k: int
+    results_1080p: int
+    results_720p: int
+    has_debrid_links: bool
+    italian_score: float
+    german_score: float
+    anime_score: float
+    overall_score: float
+    test_queries_run: Optional[Any]
+    raw_sample: Optional[Any]
 
     model_config = {"from_attributes": True}
 

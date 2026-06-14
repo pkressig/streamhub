@@ -187,6 +187,7 @@ export interface DiscoveredSource {
   italian_score: number | null;
   german_score: number | null;
   overall_score: number | null;
+  anime_score: number | null;
   response_time_ms: number | null;
   http_status: number | null;
   notes: string | null;
@@ -194,6 +195,35 @@ export interface DiscoveredSource {
   discovered_at: string;
   tested_at: string | null;
   benchmarked_at: string | null;
+  last_benchmark_at: string | null;
+  best_italian_score: number | null;
+  best_german_score: number | null;
+  best_overall_score: number | null;
+  reject_reason: string | null;
+}
+
+export interface DiscoveryBenchmarkResult {
+  id: string;
+  source_id: string;
+  run_at: string;
+  is_online: boolean;
+  response_ms: number | null;
+  total_results: number;
+  italian_results: number;
+  german_results: number;
+  english_results: number;
+  anime_results: number;
+  dubbed_results: number;
+  results_4k: number;
+  results_1080p: number;
+  results_720p: number;
+  has_debrid_links: boolean;
+  italian_score: number;
+  german_score: number;
+  anime_score: number;
+  overall_score: number;
+  test_queries_run: string[] | null;
+  raw_sample: string[] | null;
 }
 
 export interface DiscoveryRejected {

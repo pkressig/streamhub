@@ -3,7 +3,7 @@ import type {
   BenchmarkTitle, BenchmarkTitleCreate, BenchmarkRun, BenchmarkResult,
   ImportResponse, RankedSource,
   DiscoverySeed, DiscoverySeedCreate, DiscoveryRun, DiscoveredSource, DiscoveryStats, DiscoveryRejected,
-  AppSetting,
+  DiscoveryBenchmarkResult, AppSetting,
 } from './types';
 
 // Always use relative URLs so the browser calls the same host it loaded from.
@@ -114,10 +114,17 @@ export const api = {
   },
   testDiscoveredSource: (id: string) =>
     request<DiscoveredSource>(`/api/discovery/sources/${id}/test`, { method: 'POST' }),
-  benchmarkDiscoveredSource: (id: string) =>
-    request<DiscoveredSource>(`/api/discovery/sources/${id}/benchmark`, { method: 'POST' }),
+  benchmarkDiscoveredSource: (id: string, mini = true) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/benchmark?mini=${mini}`, { method: 'POST' }),
+  getSourceBenchmarkHistory: (id: string) =>
+    request<DiscoveryBenchmarkResult[]>(`/api/discovery/sources/${id}/benchmarks`),
   approveDiscoveredSource: (id: string) =>
     request<DiscoveredSource>(`/api/discovery/sources/${id}/approve`, { method: 'POST' }),
+  rejectDiscoveredSource: (id: string, reason?: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason ?? '' }),
+    }),
   importDiscoveredSource: (id: string) =>
     request<DiscoveredSource>(`/api/discovery/sources/${id}/import`, { method: 'POST' }),
   ignoreDiscoveredSource: (id: string) =>

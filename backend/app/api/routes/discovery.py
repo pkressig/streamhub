@@ -5,13 +5,15 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from fastapi import Body
 from app.database import SessionLocal
-from app.models.discovery import DiscoverySeed, DiscoveryRun, DiscoveredSource, SourceRelationship, DiscoveryRejected
+from app.models.discovery import DiscoverySeed, DiscoveryRun, DiscoveredSource, SourceRelationship, DiscoveryRejected, DiscoveryBenchmarkResult
 from app.models.settings import AppSetting
 from app.schemas.discovery import (
     DiscoverySeedCreate, DiscoverySeedOut,
     DiscoveryRunOut, DiscoveredSourceOut,
     SourceRelationshipOut, DiscoveryStatsOut, DiscoveryRejectedOut,
+    DiscoveryBenchmarkResultOut,
 )
 from app.config import settings
 
@@ -178,13 +180,32 @@ def test_discovered(source_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/sources/{source_id}/benchmark", response_model=DiscoveredSourceOut)
-def benchmark_discovered(source_id: str, db: Session = Depends(get_db)):
+def benchmark_discovered(
+    source_id: str,
+    mini: bool = Query(True, description="Mini=3 queries; False=full 15-query pass"),
+    db: Session = Depends(get_db),
+):
     s = db.query(DiscoveredSource).filter(DiscoveredSource.id == uuid.UUID(source_id)).first()
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
     from app.worker.discovery_tasks import benchmark_discovered_source
-    benchmark_discovered_source.delay(source_id)
+    benchmark_discovered_source.delay(source_id, mini=mini)
     return s
+
+
+@router.get("/sources/{source_id}/benchmarks", response_model=list[DiscoveryBenchmarkResultOut])
+def get_source_benchmarks(
+    source_id: str,
+    limit: int = Query(10, le=50),
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(DiscoveryBenchmarkResult)
+        .filter(DiscoveryBenchmarkResult.source_id == uuid.UUID(source_id))
+        .order_by(DiscoveryBenchmarkResult.run_at.desc())
+        .limit(limit)
+        .all()
+    )
 
 
 @router.post("/sources/{source_id}/approve", response_model=DiscoveredSourceOut)
@@ -193,6 +214,22 @@ def approve_discovered(source_id: str, db: Session = Depends(get_db)):
     if not s:
         raise HTTPException(status_code=404, detail="Not found")
     s.status = "approved"
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+@router.post("/sources/{source_id}/reject", response_model=DiscoveredSourceOut)
+def reject_discovered(
+    source_id: str,
+    body: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    s = db.query(DiscoveredSource).filter(DiscoveredSource.id == uuid.UUID(source_id)).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Not found")
+    s.status = "rejected"
+    s.reject_reason = body.get("reason") or None
     db.commit()
     db.refresh(s)
     return s
