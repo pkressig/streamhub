@@ -17,9 +17,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
-- Frontend: http://localhost:3000
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+- Frontend: http://localhost:13000
+- API: http://localhost:13001
+- API Docs: http://localhost:13001/docs
 
 ## API Endpoints
 
