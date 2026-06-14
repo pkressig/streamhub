@@ -42,6 +42,10 @@ class DiscoveredSourceOut(BaseModel):
     url: str
     name: Optional[str]
     detected_type: str
+    detection_family: Optional[str]
+    confidence: Optional[float]
+    detection_reason: Optional[str]
+    detection_method: Optional[str]
     status: str
     italian_score: Optional[float]
     german_score: Optional[float]
@@ -53,6 +57,16 @@ class DiscoveredSourceOut(BaseModel):
     discovered_at: Optional[datetime]
     tested_at: Optional[datetime]
     benchmarked_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
+
+
+class DiscoveryRejectedOut(BaseModel):
+    id: int
+    url: str
+    rejection_reason: str
+    source_seed: Optional[str]
+    discovered_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
 
@@ -80,3 +94,4 @@ class DiscoveryStatsOut(BaseModel):
     total_seeds: int
     active_seeds: int
     total_runs: int
+    total_rejected: int

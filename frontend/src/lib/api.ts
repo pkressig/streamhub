@@ -2,7 +2,7 @@ import type {
   Source, SourceDetail, SourceCreate, SourceTest, Stats,
   BenchmarkTitle, BenchmarkTitleCreate, BenchmarkRun, BenchmarkResult,
   ImportResponse, RankedSource,
-  DiscoverySeed, DiscoverySeedCreate, DiscoveryRun, DiscoveredSource, DiscoveryStats,
+  DiscoverySeed, DiscoverySeedCreate, DiscoveryRun, DiscoveredSource, DiscoveryStats, DiscoveryRejected,
 } from './types';
 
 // Always use relative URLs so the browser calls the same host it loaded from.
@@ -122,4 +122,13 @@ export const api = {
   ignoreDiscoveredSource: (id: string) =>
     request<DiscoveredSource>(`/api/discovery/sources/${id}/ignore`, { method: 'POST' }),
   getDiscoveryRelationships: () => request<unknown[]>('/api/discovery/relationships'),
+  getDiscoveryRejected: (params?: { limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.offset) qs.set('offset', String(params.offset));
+    const q = qs.toString();
+    return request<DiscoveryRejected[]>(`/api/discovery/rejected${q ? `?${q}` : ''}`);
+  },
+  clearDiscoveryRejected: () => request<void>('/api/discovery/rejected', { method: 'DELETE' }),
+  triggerCleanup: () => request<{ dispatched: boolean }>('/api/discovery/cleanup', { method: 'POST' }),
 };

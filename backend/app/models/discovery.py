@@ -6,6 +6,16 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class DiscoveryRejected(Base):
+    __tablename__ = "discovery_rejected"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    url = Column(Text, nullable=False)
+    rejection_reason = Column(String(100), nullable=False)
+    source_seed = Column(Text, nullable=True)
+    discovered_at = Column(DateTime, default=datetime.utcnow)
+
+
 class DiscoverySeed(Base):
     __tablename__ = "discovery_seeds"
 
@@ -47,6 +57,10 @@ class DiscoveredSource(Base):
     response_time_ms = Column(Float, nullable=True)
     http_status = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+    confidence = Column(Float, nullable=True)
+    detection_reason = Column(Text, nullable=True)
+    detection_method = Column(String(50), nullable=True)
+    detection_family = Column(String(50), nullable=True)
     source_id = Column(UUID(as_uuid=True), ForeignKey("sources.id", ondelete="SET NULL"), nullable=True)
     discovered_at = Column(DateTime, default=datetime.utcnow)
     tested_at = Column(DateTime, nullable=True)

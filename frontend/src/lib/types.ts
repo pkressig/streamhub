@@ -171,6 +171,10 @@ export interface DiscoveredSource {
   url: string;
   name: string | null;
   detected_type: string;
+  detection_family: string | null;
+  confidence: number | null;
+  detection_reason: string | null;
+  detection_method: string | null;
   status: string;
   italian_score: number | null;
   german_score: number | null;
@@ -184,6 +188,14 @@ export interface DiscoveredSource {
   benchmarked_at: string | null;
 }
 
+export interface DiscoveryRejected {
+  id: number;
+  url: string;
+  rejection_reason: string;
+  source_seed: string | null;
+  discovered_at: string;
+}
+
 export interface DiscoveryStats {
   total_candidates: number;
   tested: number;
@@ -195,4 +207,5 @@ export interface DiscoveryStats {
   total_seeds: number;
   active_seeds: number;
   total_runs: number;
+  total_rejected: number;
 }
