@@ -176,3 +176,7 @@ def nightly_benchmark():
         return {"run_id": str(run.id)}
     finally:
         db.close()
+
+
+# Import discovery tasks so they are registered with Celery
+from app.worker import discovery_tasks as _discovery_tasks  # noqa

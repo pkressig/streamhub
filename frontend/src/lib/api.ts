@@ -2,6 +2,7 @@ import type {
   Source, SourceDetail, SourceCreate, SourceTest, Stats,
   BenchmarkTitle, BenchmarkTitleCreate, BenchmarkRun, BenchmarkResult,
   ImportResponse, RankedSource,
+  DiscoverySeed, DiscoverySeedCreate, DiscoveryRun, DiscoveredSource, DiscoveryStats,
 } from './types';
 
 // Always use relative URLs so the browser calls the same host it loaded from.
@@ -92,4 +93,33 @@ export const api = {
   getRankingsMovies: () => request<RankedSource[]>('/api/rankings/movies'),
   getRankingsSeries: () => request<RankedSource[]>('/api/rankings/series'),
   getRankingsAnime: () => request<RankedSource[]>('/api/rankings/anime'),
+
+  // Discovery
+  getDiscoveryStats: () => request<DiscoveryStats>('/api/discovery/stats'),
+  getDiscoverySeeds: () => request<DiscoverySeed[]>('/api/discovery/seeds'),
+  createDiscoverySeed: (data: DiscoverySeedCreate) =>
+    request<DiscoverySeed>('/api/discovery/seeds', { method: 'POST', body: JSON.stringify(data) }),
+  deleteDiscoverySeed: (id: string) =>
+    request<void>(`/api/discovery/seeds/${id}`, { method: 'DELETE' }),
+  getDiscoveryRuns: () => request<DiscoveryRun[]>('/api/discovery/runs'),
+  triggerDiscoveryRun: () =>
+    request<DiscoveryRun>('/api/discovery/runs', { method: 'POST' }),
+  getDiscoveredSources: (params?: { status?: string; detected_type?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.detected_type) qs.set('detected_type', params.detected_type);
+    const q = qs.toString();
+    return request<DiscoveredSource[]>(`/api/discovery/sources${q ? `?${q}` : ''}`);
+  },
+  testDiscoveredSource: (id: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/test`, { method: 'POST' }),
+  benchmarkDiscoveredSource: (id: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/benchmark`, { method: 'POST' }),
+  approveDiscoveredSource: (id: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/approve`, { method: 'POST' }),
+  importDiscoveredSource: (id: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/import`, { method: 'POST' }),
+  ignoreDiscoveredSource: (id: string) =>
+    request<DiscoveredSource>(`/api/discovery/sources/${id}/ignore`, { method: 'POST' }),
+  getDiscoveryRelationships: () => request<unknown[]>('/api/discovery/relationships'),
 };

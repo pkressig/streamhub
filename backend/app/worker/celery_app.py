@@ -6,7 +6,7 @@ celery_app = Celery(
     "pascalhub",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.worker.tasks"],
+    include=["app.worker.tasks", "app.worker.discovery_tasks"],
 )
 
 celery_app.conf.update(
@@ -23,6 +23,14 @@ celery_app.conf.update(
         "nightly-benchmark": {
             "task": "app.worker.tasks.nightly_benchmark",
             "schedule": crontab(hour=2, minute=0),  # 02:00 UTC every night
+        },
+        "scheduled-discovery-every-6-hours": {
+            "task": "app.worker.tasks.scheduled_discovery",
+            "schedule": 21600.0,
+        },
+        "retest-discovered-sources-daily": {
+            "task": "app.worker.tasks.retest_discovered_sources",
+            "schedule": 86400.0,
         },
     },
 )

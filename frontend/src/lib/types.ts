@@ -135,3 +135,64 @@ export interface RankedSource {
   score: number;
   profile: SourceProfile | null;
 }
+
+// ── Discovery ────────────────────────────────────────────────────────────────
+
+export interface DiscoverySeed {
+  id: string;
+  url: string;
+  label: string | null;
+  seed_type: string;
+  enabled: boolean;
+  last_crawled: string | null;
+  created_at: string;
+}
+
+export interface DiscoverySeedCreate {
+  url: string;
+  label?: string;
+  seed_type: string;
+  enabled?: boolean;
+}
+
+export interface DiscoveryRun {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  seeds_crawled: number;
+  candidates_found: number;
+  notes: string | null;
+}
+
+export interface DiscoveredSource {
+  id: string;
+  run_id: string | null;
+  url: string;
+  name: string | null;
+  detected_type: string;
+  status: string;
+  italian_score: number | null;
+  german_score: number | null;
+  overall_score: number | null;
+  response_time_ms: number | null;
+  http_status: number | null;
+  notes: string | null;
+  source_id: string | null;
+  discovered_at: string;
+  tested_at: string | null;
+  benchmarked_at: string | null;
+}
+
+export interface DiscoveryStats {
+  total_candidates: number;
+  tested: number;
+  benchmarked: number;
+  approved: number;
+  imported: number;
+  ignored: number;
+  dead: number;
+  total_seeds: number;
+  active_seeds: number;
+  total_runs: number;
+}

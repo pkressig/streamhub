@@ -1,11 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Database, FlaskConical, Zap, Trophy, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Database, FlaskConical, Zap, Trophy, ClipboardList, Radar } from 'lucide-react';
 
 const nav = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/sources', label: 'Sources', icon: Database },
+  { href: '/discovery', label: 'Discovery', icon: Radar },
   { href: '/benchmarks', label: 'Benchmarks', icon: ClipboardList },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/testing', label: 'Testing', icon: FlaskConical },
@@ -43,7 +44,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-4 border-t border-gray-800">
-        <p className="text-xs text-gray-600">v0.2.0</p>
+        <p className="text-xs text-gray-600">v0.3.0</p>
       </div>
     </aside>
   );
