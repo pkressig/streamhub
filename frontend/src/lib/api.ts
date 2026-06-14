@@ -4,7 +4,9 @@ import type {
   ImportResponse, RankedSource,
 } from './types';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:13001';
+// Always use relative URLs so the browser calls the same host it loaded from.
+// Next.js rewrites /api/* → http://backend:8000/api/* on the server side.
+const BASE = '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -12,8 +14,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', ...options?.headers },
   });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      detail = body?.detail || JSON.stringify(body) || detail;
+    } catch {
+      try { detail = await res.text() || detail; } catch { /* ignore */ }
+    }
+    throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -24,8 +32,9 @@ async function upload<T>(path: string, file: File): Promise<T> {
   fd.append('file', file);
   const res = await fetch(`${BASE}${path}`, { method: 'POST', body: fd });
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    let detail = `HTTP ${res.status}`;
+    try { detail = (await res.json())?.detail || detail; } catch { /* ignore */ }
+    throw new Error(detail);
   }
   return res.json();
 }

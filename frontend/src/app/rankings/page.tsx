@@ -101,13 +101,17 @@ export default function RankingsPage() {
   const [tab, setTab] = useState<Tab>('italian');
   const [data, setData] = useState<Partial<Record<Tab, RankedSource[]>>>({});
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadTab = async (t: Tab) => {
-    if (data[t]) return;
+  const loadTab = async (t: Tab, force = false) => {
+    if (data[t] && !force) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await FETCHERS[t]();
       setData(d => ({ ...d, [t]: res }));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load rankings');
     } finally {
       setLoading(false);
     }
@@ -147,12 +151,17 @@ export default function RankingsPage() {
               Top {currentTab.label} Sources
             </h2>
             <button
-              onClick={() => { setData(d => ({ ...d, [tab]: undefined })); loadTab(tab); }}
+              onClick={() => { setData(d => ({ ...d, [tab]: undefined })); loadTab(tab, true); }}
               className="ml-auto text-xs text-gray-500 hover:text-white transition-colors"
             >
               Refresh
             </button>
           </div>
+          {error && (
+            <div className="px-4 py-3 rounded-lg text-sm border bg-red-500/10 border-red-500/20 text-red-400 mb-4">
+              <span className="font-semibold">API error:</span> {error}
+            </div>
+          )}
           {loading && !sources.length ? (
             <p className="text-gray-500 text-sm animate-pulse">Loading…</p>
           ) : (

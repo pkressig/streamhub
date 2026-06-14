@@ -27,6 +27,7 @@ const TYPE_OPTIONS: Array<{ value: string; label: string }> = [
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [status, setStatus] = useState('');
   const [sourceType, setSourceType] = useState('');
@@ -34,9 +35,12 @@ export default function SourcesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const s = await api.getSources({ status: status || undefined, source_type: sourceType || undefined });
       setSources(s);
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load sources');
     } finally {
       setLoading(false);
     }
@@ -82,9 +86,14 @@ export default function SourcesPage() {
           </button>
         </div>
 
+        {loadError && (
+          <div className="px-4 py-3 rounded-lg text-sm border bg-red-500/10 border-red-500/20 text-red-400 mb-4">
+            <span className="font-semibold">API error:</span> {loadError}
+          </div>
+        )}
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-5">
           {loading ? (
-            <div className="text-gray-500 text-sm">Loading...</div>
+            <div className="text-gray-500 text-sm animate-pulse">Loading…</div>
           ) : (
             <SourceTable sources={filtered} onRefresh={load} />
           )}

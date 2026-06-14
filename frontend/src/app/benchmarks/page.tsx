@@ -50,8 +50,11 @@ export default function BenchmarksPage() {
     language_target: 'multi' as LanguageTarget, year: '',
   });
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [t, r] = await Promise.all([
         api.getBenchmarkTitles({
@@ -62,6 +65,8 @@ export default function BenchmarksPage() {
       ]);
       setTitles(t);
       setRuns(r);
+    } catch (err: unknown) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load benchmarks');
     } finally {
       setLoading(false);
     }
@@ -157,6 +162,12 @@ export default function BenchmarksPage() {
             <RefreshCw size={16} />
           </button>
         </div>
+
+        {loadError && (
+          <div className="px-4 py-3 rounded-lg text-sm border bg-red-500/10 border-red-500/20 text-red-400">
+            <span className="font-semibold">API error:</span> {loadError}
+          </div>
+        )}
 
         {importResult && (
           <div className={`px-4 py-3 rounded-lg text-sm border ${importResult.startsWith('Error') ? 'bg-red-500/10 border-red-500/20 text-red-400' : 'bg-green-500/10 border-green-500/20 text-green-400'}`}>
