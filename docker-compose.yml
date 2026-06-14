@@ -43,16 +43,36 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.worker.celery_app worker --beat --loglevel=info --concurrency=4
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql://pascalhub:pascalhub@postgres:5432/pascalhub
       REDIS_URL: redis://redis:6379/0
+      DISCOVERY_INTERVAL_HOURS: "6"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+  beat:
+    build: ./backend
+    command: celery -A app.worker.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://pascalhub:pascalhub@postgres:5432/pascalhub
+      REDIS_URL: redis://redis:6379/0
+      DISCOVERY_INTERVAL_HOURS: "6"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      worker:
         condition: service_started
     volumes:
       - ./backend:/app
@@ -62,10 +82,7 @@ services:
     ports:
       - "13000:3000"
     environment:
-      # Used server-side by Next.js rewrites to proxy /api/* to the backend container.
-      # NEXT_PUBLIC_* vars are baked at build time and break when the server IP changes —
-      # use rewrites instead so the browser always calls the same host it loaded from.
-      BACKEND_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: http://192.168.1.54:13001
     depends_on:
       - backend
 

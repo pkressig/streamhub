@@ -143,16 +143,24 @@ export interface DiscoverySeed {
   url: string;
   label: string | null;
   seed_type: string;
+  category: string | null;
   enabled: boolean;
   last_crawled: string | null;
   created_at: string;
+  parent_seed_id: string | null;
+  is_bred: boolean;
+  breed_depth: number;
 }
 
 export interface DiscoverySeedCreate {
   url: string;
   label?: string;
   seed_type: string;
+  category?: string;
   enabled?: boolean;
+  parent_seed_id?: string;
+  is_bred?: boolean;
+  breed_depth?: number;
 }
 
 export interface DiscoveryRun {
@@ -208,4 +216,13 @@ export interface DiscoveryStats {
   active_seeds: number;
   total_runs: number;
   total_rejected: number;
+  auto_discovery_enabled: boolean;
+  discovery_interval_hours: number;
+  next_scheduled_at: string | null;
+  total_bred_seeds: number;
+}
+
+export interface AppSetting {
+  key: string;
+  value: string;
 }

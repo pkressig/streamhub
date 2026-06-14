@@ -5,7 +5,7 @@ import { DiscoveryStats, DiscoveryRun, DiscoverySeed, DiscoveredSource, Discover
 import { Header } from '@/components/layout/Header';
 import {
   Search, Plus, Trash2, RefreshCw, Play, Clock, CheckCircle, XCircle,
-  Loader2, ExternalLink, Download, EyeOff, Zap, ShieldX, Sparkles,
+  Loader2, ExternalLink, Download, EyeOff, Zap, ShieldX, Sparkles, GitBranch,
 } from 'lucide-react';
 
 type MainTab = 'useful' | 'generic' | 'rejected' | 'seeds' | 'runs';
@@ -90,9 +90,10 @@ function StatsRow({ stats }: { stats: DiscoveryStats }) {
     { label: 'Imported', value: stats.imported, color: 'text-teal-400' },
     { label: 'Ignored', value: stats.ignored, color: 'text-gray-600' },
     { label: 'Rejected', value: stats.total_rejected, color: 'text-red-500' },
+    { label: 'Bred Seeds', value: stats.total_bred_seeds, color: 'text-orange-400' },
   ];
   return (
-    <div className="grid grid-cols-4 lg:grid-cols-7 gap-3">
+    <div className="grid grid-cols-4 lg:grid-cols-8 gap-3">
       {cards.map(c => (
         <div key={c.label} className="bg-gray-800 rounded-lg border border-gray-700 p-3 text-center">
           <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
@@ -309,26 +310,138 @@ function RejectedTab({ rejected, onRefresh }: { rejected: DiscoveryRejected[]; o
 
 // ── Seeds Tab ─────────────────────────────────────────────────────────────────
 
+const CATEGORY_META: Record<string, { label: string; color: string }> = {
+  stremio_ecosystem: { label: 'Stremio',    color: 'bg-pink-500/20 text-pink-300' },
+  italian_content:   { label: 'Italian',    color: 'bg-green-500/20 text-green-300' },
+  german_content:    { label: 'German',     color: 'bg-yellow-500/20 text-yellow-300' },
+  usenet:            { label: 'Usenet',     color: 'bg-indigo-500/20 text-indigo-300' },
+  debrid:            { label: 'Debrid',     color: 'bg-violet-500/20 text-violet-300' },
+  github_repo:       { label: 'GitHub Repo', color: 'bg-orange-500/20 text-orange-300' },
+  reddit:            { label: 'Reddit',     color: 'bg-orange-700/20 text-orange-400' },
+};
+
+const SEED_TYPE_OPTIONS = [
+  { value: 'url',           label: 'URL — page to crawl' },
+  { value: 'github_repo',   label: 'GitHub Repo — README instance extraction' },
+  { value: 'github_user',   label: 'GitHub User — repos from a user/org' },
+  { value: 'github_search', label: 'GitHub Search — API search → repo READMEs' },
+  { value: 'reddit',        label: 'Reddit — extract URLs from posts' },
+  { value: 'rss',           label: 'RSS feed' },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: '',                  label: '(none)' },
+  { value: 'stremio_ecosystem', label: 'Stremio Ecosystem' },
+  { value: 'italian_content',   label: 'Italian Content' },
+  { value: 'german_content',    label: 'German Content' },
+  { value: 'usenet',            label: 'Usenet / Newznab' },
+  { value: 'debrid',            label: 'Debrid' },
+  { value: 'github_repo',       label: 'GitHub Repo' },
+  { value: 'reddit',            label: 'Reddit' },
+];
+
+function CategoryBadge({ category }: { category: string | null }) {
+  if (!category) return null;
+  const meta = CATEGORY_META[category];
+  if (!meta) return <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">{category}</span>;
+  return <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${meta.color}`}>{meta.label}</span>;
+}
+
+function SeedRow({ seed, indent = false, onDelete }: { seed: DiscoverySeed; indent?: boolean; onDelete: () => void }) {
+  return (
+    <div className={`bg-gray-900/60 rounded-lg p-3 flex items-center gap-3 ${indent ? 'ml-6 border-l-2 border-gray-700' : ''}`}>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-white text-sm font-medium truncate">{seed.label || seed.url}</span>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/80 text-gray-400">{seed.seed_type}</span>
+          {seed.is_bred && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 flex items-center gap-0.5">
+              <GitBranch size={9} /> auto
+            </span>
+          )}
+          {seed.breed_depth > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-500">d{seed.breed_depth}</span>
+          )}
+          {!seed.enabled && <span className="text-xs text-gray-600">disabled</span>}
+        </div>
+        {seed.label && <div className="text-xs text-gray-500 truncate mt-0.5">{seed.url}</div>}
+        {seed.last_crawled && <div className="text-xs text-gray-600 mt-0.5">Crawled: {new Date(seed.last_crawled).toLocaleString()}</div>}
+      </div>
+      <button onClick={onDelete} className="p-1 text-gray-500 hover:text-red-400 transition-colors shrink-0">
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
 function SeedsTab({ seeds, onRefresh }: { seeds: DiscoverySeed[]; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ url: '', label: '', seed_type: 'url' });
+  const [form, setForm] = useState({ url: '', label: '', seed_type: 'url', category: '' });
   const [saving, setSaving] = useState(false);
+  const [seedsView, setSeedsView] = useState<'list' | 'lineage'>('list');
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await api.createDiscoverySeed(form);
-      setForm({ url: '', label: '', seed_type: 'url' });
+      await api.createDiscoverySeed({
+        url: form.url,
+        label: form.label || undefined,
+        seed_type: form.seed_type,
+        category: form.category || undefined,
+      });
+      setForm({ url: '', label: '', seed_type: 'url', category: '' });
       setShowForm(false);
       onRefresh();
     } finally { setSaving(false); }
   };
 
+  const deleteSeed = async (id: string) => {
+    await api.deleteDiscoverySeed(id);
+    onRefresh();
+  };
+
+  // Group seeds by category (uncategorised last)
+  const grouped = seeds.reduce<Record<string, DiscoverySeed[]>>((acc, s) => {
+    const key = s.category || '__none__';
+    (acc[key] ??= []).push(s);
+    return acc;
+  }, {});
+
+  const categoryOrder = [
+    'stremio_ecosystem', 'italian_content', 'german_content',
+    'usenet', 'debrid', 'github_repo', 'reddit', '__none__',
+  ];
+  const orderedCategories = [
+    ...categoryOrder.filter(k => grouped[k]),
+    ...Object.keys(grouped).filter(k => !categoryOrder.includes(k)),
+  ];
+
+  // Lineage view: build parent→children map
+  const humanSeeds = seeds.filter(s => !s.is_bred);
+  const childMap = seeds.reduce<Record<string, DiscoverySeed[]>>((acc, s) => {
+    if (s.parent_seed_id) {
+      (acc[s.parent_seed_id] ??= []).push(s);
+    }
+    return acc;
+  }, {});
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <span className="text-sm text-gray-400">{seeds.length} seeds configured</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-400">{seeds.length} seeds configured</span>
+          <div className="flex gap-1 bg-gray-900/60 rounded p-0.5">
+            <button onClick={() => setSeedsView('list')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${seedsView === 'list' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-white'}`}>
+              List
+            </button>
+            <button onClick={() => setSeedsView('lineage')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1 ${seedsView === 'lineage' ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-white'}`}>
+              <GitBranch size={11} /> Lineage
+            </button>
+          </div>
+        </div>
         <button onClick={() => setShowForm(v => !v)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm font-medium transition-colors">
           <Plus size={14} /> Add Seed
@@ -353,12 +466,17 @@ function SeedsTab({ seeds, onRefresh }: { seeds: DiscoverySeed[]; onRefresh: () 
             />
           </div>
           <div>
+            <label className="block text-xs text-gray-400 mb-1">Category</label>
+            <select className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+              value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+              {CATEGORY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs text-gray-400 mb-1">Seed Type</label>
             <select className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
               value={form.seed_type} onChange={e => setForm(f => ({ ...f, seed_type: e.target.value }))}>
-              <option value="url">URL (page to crawl)</option>
-              <option value="github">GitHub repo</option>
-              <option value="rss">RSS feed</option>
+              {SEED_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div className="col-span-2 flex gap-2 justify-end">
@@ -375,23 +493,47 @@ function SeedsTab({ seeds, onRefresh }: { seeds: DiscoverySeed[]; onRefresh: () 
           <p>No seeds configured.</p>
           <p className="text-xs mt-1">Add a seed URL — only real indexer/source URLs will be stored.</p>
         </div>
-      ) : (
-        <div className="space-y-2">
-          {seeds.map(seed => (
-            <div key={seed.id} className="bg-gray-900/60 rounded-lg p-3 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-white text-sm font-medium truncate">{seed.label || seed.url}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">{seed.seed_type}</span>
-                  {!seed.enabled && <span className="text-xs text-gray-600">disabled</span>}
-                </div>
-                {seed.label && <div className="text-xs text-gray-500 truncate mt-0.5">{seed.url}</div>}
-                {seed.last_crawled && <div className="text-xs text-gray-600 mt-0.5">Crawled: {new Date(seed.last_crawled).toLocaleString()}</div>}
+      ) : seedsView === 'lineage' ? (
+        <div className="space-y-5">
+          {humanSeeds.length === 0 ? (
+            <p className="text-sm text-gray-500">No human-added seeds yet.</p>
+          ) : (
+            humanSeeds.map(seed => (
+              <div key={seed.id}>
+                <SeedRow seed={seed} onDelete={() => deleteSeed(seed.id)} />
+                {(childMap[seed.id] ?? []).map(child => (
+                  <div key={child.id} className="mt-1.5">
+                    <SeedRow seed={child} indent onDelete={() => deleteSeed(child.id)} />
+                    {(childMap[child.id] ?? []).map(grandchild => (
+                      <div key={grandchild.id} className="mt-1.5 ml-6">
+                        <SeedRow seed={grandchild} indent onDelete={() => deleteSeed(grandchild.id)} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
-              <button onClick={async () => { await api.deleteDiscoverySeed(seed.id); onRefresh(); }}
-                className="p-1 text-gray-500 hover:text-red-400 transition-colors shrink-0">
-                <Trash2 size={13} />
-              </button>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {orderedCategories.map(cat => (
+            <div key={cat}>
+              <div className="flex items-center gap-2 mb-2">
+                {cat === '__none__' ? (
+                  <span className="text-xs text-gray-600 font-medium uppercase tracking-wide">Uncategorised</span>
+                ) : (
+                  <>
+                    <CategoryBadge category={cat} />
+                    <span className="text-xs text-gray-600">{grouped[cat].length}</span>
+                  </>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                {grouped[cat].map(seed => (
+                  <SeedRow key={seed.id} seed={seed} onDelete={() => deleteSeed(seed.id)} />
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -447,6 +589,7 @@ export default function DiscoveryPage() {
   const [triggering, setTriggering] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
+  const [togglingAuto, setTogglingAuto] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -503,6 +646,15 @@ export default function DiscoveryPage() {
     } finally { setCleaning(false); }
   };
 
+  const toggleAutoDiscovery = async () => {
+    if (!stats) return;
+    setTogglingAuto(true);
+    try {
+      await api.putSetting('auto_discovery_enabled', stats.auto_discovery_enabled ? 'false' : 'true');
+      await load();
+    } finally { setTogglingAuto(false); }
+  };
+
   const usefulSources = sources.filter(s => USEFUL_TYPES.has(s.detected_type));
   const genericSources = sources.filter(s => !USEFUL_TYPES.has(s.detected_type));
 
@@ -537,9 +689,30 @@ export default function DiscoveryPage() {
             <Sparkles size={15} />
             {cleaning ? 'Dispatching…' : 'Run Cleanup'}
           </button>
+          {stats && (
+            <button
+              onClick={toggleAutoDiscovery}
+              disabled={togglingAuto}
+              title={stats.auto_discovery_enabled ? 'Auto-discovery enabled — click to disable' : 'Auto-discovery disabled — click to enable'}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                stats.auto_discovery_enabled
+                  ? 'bg-green-600/20 hover:bg-green-600/30 text-green-400 border border-green-600/40'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-400 border border-gray-600'
+              }`}
+            >
+              <Clock size={14} />
+              {stats.auto_discovery_enabled ? 'Auto: On' : 'Auto: Off'}
+            </button>
+          )}
           <button onClick={load} className="p-2 text-gray-400 hover:text-white transition-colors">
             <RefreshCw size={16} />
           </button>
+          {stats?.next_scheduled_at && stats.auto_discovery_enabled && (
+            <span className="flex items-center gap-1 text-xs text-gray-500">
+              <Clock size={11} />
+              Next: {new Date(stats.next_scheduled_at).toLocaleString()}
+            </span>
+          )}
           {seeds.length === 0 && (
             <span className="text-xs text-yellow-400">Add at least one seed URL to enable discovery.</span>
           )}

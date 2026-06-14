@@ -9,7 +9,11 @@ class DiscoverySeedCreate(BaseModel):
     url: str
     label: Optional[str] = None
     seed_type: str = "url"
+    category: Optional[str] = None
     enabled: bool = True
+    parent_seed_id: Optional[UUID] = None
+    is_bred: bool = False
+    breed_depth: int = 0
 
 
 class DiscoverySeedOut(BaseModel):
@@ -17,9 +21,13 @@ class DiscoverySeedOut(BaseModel):
     url: str
     label: Optional[str]
     seed_type: str
+    category: Optional[str]
     enabled: bool
     last_crawled: Optional[datetime]
     created_at: Optional[datetime]
+    parent_seed_id: Optional[UUID]
+    is_bred: bool
+    breed_depth: int
 
     model_config = {"from_attributes": True}
 
@@ -95,3 +103,7 @@ class DiscoveryStatsOut(BaseModel):
     active_seeds: int
     total_runs: int
     total_rejected: int
+    auto_discovery_enabled: bool
+    discovery_interval_hours: int
+    next_scheduled_at: Optional[datetime]
+    total_bred_seeds: int

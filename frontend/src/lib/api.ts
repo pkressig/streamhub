@@ -3,6 +3,7 @@ import type {
   BenchmarkTitle, BenchmarkTitleCreate, BenchmarkRun, BenchmarkResult,
   ImportResponse, RankedSource,
   DiscoverySeed, DiscoverySeedCreate, DiscoveryRun, DiscoveredSource, DiscoveryStats, DiscoveryRejected,
+  AppSetting,
 } from './types';
 
 // Always use relative URLs so the browser calls the same host it loaded from.
@@ -131,4 +132,12 @@ export const api = {
   },
   clearDiscoveryRejected: () => request<void>('/api/discovery/rejected', { method: 'DELETE' }),
   triggerCleanup: () => request<{ dispatched: boolean }>('/api/discovery/cleanup', { method: 'POST' }),
+
+  // Settings
+  getSettings: () => request<Record<string, string>>('/api/settings'),
+  putSetting: (key: string, value: string) =>
+    request<{ key: string; value: string }>(`/api/settings/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
 };

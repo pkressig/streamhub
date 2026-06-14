@@ -26,11 +26,15 @@ celery_app.conf.update(
         },
         "scheduled-discovery-every-6-hours": {
             "task": "app.worker.tasks.scheduled_discovery",
-            "schedule": 21600.0,
+            "schedule": settings.DISCOVERY_INTERVAL_HOURS * 3600,
         },
         "retest-discovered-sources-daily": {
             "task": "app.worker.tasks.retest_discovered_sources",
             "schedule": 86400.0,
+        },
+        "deep-discovery-nightly": {
+            "task": "app.worker.tasks.deep_discovery",
+            "schedule": crontab(hour=3, minute=0),
         },
     },
 )

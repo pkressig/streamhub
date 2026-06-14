@@ -1,16 +1,19 @@
 from __future__ import annotations
 import uuid
+from datetime import timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.discovery import DiscoverySeed, DiscoveryRun, DiscoveredSource, SourceRelationship, DiscoveryRejected
+from app.models.settings import AppSetting
 from app.schemas.discovery import (
     DiscoverySeedCreate, DiscoverySeedOut,
     DiscoveryRunOut, DiscoveredSourceOut,
     SourceRelationshipOut, DiscoveryStatsOut, DiscoveryRejectedOut,
 )
+from app.config import settings
 
 router = APIRouter()
 
@@ -33,6 +36,22 @@ def get_stats(db: Session = Depends(get_db)):
         .group_by(DiscoveredSource.status)
         .all()
     )
+
+    auto_setting = db.query(AppSetting).filter(AppSetting.key == "auto_discovery_enabled").first()
+    auto_discovery_enabled = (auto_setting.value.lower() == "true") if auto_setting else True
+
+    last_run = (
+        db.query(DiscoveryRun)
+        .filter(DiscoveryRun.status == "completed")
+        .order_by(DiscoveryRun.finished_at.desc())
+        .first()
+    )
+    next_scheduled_at = None
+    if last_run and last_run.finished_at:
+        next_scheduled_at = last_run.finished_at + timedelta(hours=settings.DISCOVERY_INTERVAL_HOURS)
+
+    total_bred_seeds = db.query(DiscoverySeed).filter(DiscoverySeed.is_bred == True).count()
+
     return DiscoveryStatsOut(
         total_candidates=db.query(DiscoveredSource).count(),
         tested=(
@@ -50,6 +69,10 @@ def get_stats(db: Session = Depends(get_db)):
         active_seeds=db.query(DiscoverySeed).filter(DiscoverySeed.enabled == True).count(),
         total_runs=db.query(DiscoveryRun).count(),
         total_rejected=db.query(DiscoveryRejected).count(),
+        auto_discovery_enabled=auto_discovery_enabled,
+        discovery_interval_hours=settings.DISCOVERY_INTERVAL_HOURS,
+        next_scheduled_at=next_scheduled_at,
+        total_bred_seeds=total_bred_seeds,
     )
 
 

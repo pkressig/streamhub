@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.api.routes import sources, health, benchmarks, rankings, discovery
+from app.api.routes import sources, health, benchmarks, rankings, discovery, settings as settings_route
 import app.models  # noqa: register all models with SQLAlchemy
 
 app = FastAPI(
@@ -30,3 +30,4 @@ app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
 app.include_router(benchmarks.router, prefix="/api/benchmarks", tags=["benchmarks"])
 app.include_router(rankings.router, prefix="/api/rankings", tags=["rankings"])
 app.include_router(discovery.router, prefix="/api/discovery", tags=["discovery"])
+app.include_router(settings_route.router, prefix="/api/settings", tags=["settings"])

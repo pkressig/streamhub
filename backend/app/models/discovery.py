@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+
 class DiscoveryRejected(Base):
     __tablename__ = "discovery_rejected"
 
@@ -23,9 +24,13 @@ class DiscoverySeed(Base):
     url = Column(String, nullable=False, unique=True)
     label = Column(String, nullable=True)
     seed_type = Column(String, nullable=False, default="url")
+    category = Column(String(50), nullable=True)
     enabled = Column(Boolean, nullable=False, default=True)
     last_crawled = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    parent_seed_id = Column(UUID(as_uuid=True), ForeignKey("discovery_seeds.id", ondelete="SET NULL"), nullable=True)
+    is_bred = Column(Boolean, nullable=False, default=False)
+    breed_depth = Column(Integer, nullable=False, default=0)
 
 
 class DiscoveryRun(Base):

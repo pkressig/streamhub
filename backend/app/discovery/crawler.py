@@ -1,7 +1,7 @@
 """Crawl seed URLs and extract real source candidate URLs (not GitHub pages)."""
 from __future__ import annotations
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse, urlencode, parse_qsl, quote as urlquote
 import httpx
 
 # Patterns that indicate actual indexer/source URLs worth probing
@@ -129,6 +129,80 @@ async def crawl_github_repo(owner: str, repo: str, timeout: float = 15.0) -> lis
     return list(candidates)
 
 
+async def crawl_reddit(url: str, timeout: float = 20.0) -> list[str]:
+    """
+    Fetch a Reddit listing as JSON and extract candidate source URLs
+    from post titles, bodies, and link targets.
+    Never returns github.com/* URLs as candidates.
+    """
+    candidates: set[str] = set()
+
+    # Convert to Reddit JSON API URL
+    parsed = urlparse(url)
+    json_path = parsed.path.rstrip("/") + ".json"
+    params = dict(parse_qsl(parsed.query))
+    params.setdefault("limit", "100")
+    params["raw_json"] = "1"
+    json_url = urlunparse(parsed._replace(path=json_path, query=urlencode(params)))
+
+    headers = {
+        "User-Agent": "PascalHub/0.4 Discovery (open-source research bot)",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True, verify=False, headers=headers
+        ) as client:
+            resp = await client.get(json_url)
+            if resp.status_code >= 400:
+                return []
+            data = resp.json()
+
+        posts: list[dict] = []
+        if isinstance(data, dict):
+            posts = [c.get("data", {}) for c in data.get("data", {}).get("children", [])]
+        elif isinstance(data, list):
+            for part in data:
+                posts.extend(c.get("data", {}) for c in part.get("data", {}).get("children", []))
+
+        text_to_scan = " ".join(
+            (p.get("title", "") or "") + " " +
+            (p.get("selftext", "") or "") + " " +
+            (p.get("url", "") or "")
+            for p in posts
+        )
+
+        for m in _INTERESTING_URL_RE.finditer(text_to_scan):
+            raw = _clean(m.group(1))
+            if raw and not _is_github(raw) and not _skip_ext(raw):
+                candidates.add(raw)
+
+        for m in _ANY_URL_RE.finditer(text_to_scan):
+            raw = _clean(m.group(0))
+            if raw and not _is_github(raw) and not _skip_ext(raw) and "reddit.com" not in raw:
+                candidates.add(raw)
+
+        for m in _IP_PORT_RE.finditer(text_to_scan):
+            raw = _clean(m.group(0))
+            if raw:
+                candidates.add(raw)
+
+        base_hosts: set[str] = set()
+        for u in list(candidates):
+            p = urlparse(u)
+            if p.netloc:
+                base_hosts.add(f"{p.scheme}://{p.netloc}")
+        for base in list(base_hosts)[:15]:
+            candidates.add(base + "/api?t=caps")
+            candidates.add(base + "/manifest.json")
+
+    except Exception:
+        pass
+
+    return list(candidates)
+
+
 # ── Well-known seed repos to always check ───────────────────────────────────
 
 KNOWN_REPOS: list[tuple[str, str]] = [
@@ -167,3 +241,74 @@ def _skip_ext(url: str) -> bool:
     path = urlparse(url).path.lower()
     suffix = path.rsplit(".", 1)[-1] if "." in path else ""
     return f".{suffix}" in _SKIP_EXTENSIONS
+
+
+async def crawl_github_user(username: str, timeout: float = 30.0) -> list[str]:
+    """Fetch repos owned by a GitHub user/org and extract instance URLs from each."""
+    candidates: set[str] = set()
+    api_url = f"https://api.github.com/users/{username}/repos?per_page=30&sort=updated&type=owner"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "PascalHub/0.4 Discovery",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, verify=False, headers=headers) as client:
+            resp = await client.get(api_url)
+            if resp.status_code >= 400:
+                return []
+            repos = resp.json()
+        for repo in repos[:20]:
+            owner = repo.get("owner", {}).get("login", "")
+            name = repo.get("name", "")
+            if owner and name:
+                results = await crawl_github_repo(owner, name, timeout=15.0)
+                candidates.update(results)
+            homepage = (repo.get("homepage") or "").strip().rstrip("/")
+            if homepage and not _is_github(homepage) and homepage.startswith("http"):
+                candidates.add(homepage)
+    except Exception:
+        pass
+    return list(candidates)
+
+
+async def crawl_github_search(query: str, timeout: float = 20.0) -> list[str]:
+    """
+    Use the GitHub search API to find repositories matching `query`,
+    then extract instance URLs from each repo's homepage + README.
+    Never returns github.com/* URLs as candidates.
+    """
+    candidates: set[str] = set()
+    api_url = (
+        f"https://api.github.com/search/repositories"
+        f"?q={urlquote(query)}&per_page=30&sort=updated"
+    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "PascalHub/0.4 Discovery",
+    }
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=True, verify=False, headers=headers
+        ) as client:
+            resp = await client.get(api_url)
+            if resp.status_code >= 400:
+                return []
+            items = resp.json().get("items", [])
+
+        # For each repo: collect homepage + crawl README
+        for item in items[:20]:
+            homepage = (item.get("homepage") or "").strip().rstrip("/")
+            if homepage and not _is_github(homepage) and homepage.startswith("http"):
+                candidates.add(homepage)
+
+            owner = item.get("owner", {}).get("login", "")
+            repo  = item.get("name", "")
+            if owner and repo:
+                results = await crawl_github_repo(owner, repo, timeout)
+                candidates.update(results)
+
+    except Exception:
+        pass
+
+    return list(candidates)

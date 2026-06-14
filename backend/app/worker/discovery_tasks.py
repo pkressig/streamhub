@@ -19,13 +19,14 @@ def _run(coro):
 # ── Main pipeline ─────────────────────────────────────────────────────────────
 
 @celery_app.task(name="app.worker.tasks.run_discovery")
-def run_discovery(run_id: str):
+def run_discovery(run_id: str, deep: bool = False):
     """Crawl seeds → noise-filter → classify → store only passing candidates."""
     from app.models.discovery import DiscoveryRun, DiscoverySeed, DiscoveredSource, SourceFingerprint, DiscoveryRejected
-    from app.discovery.crawler import crawl_url
     from app.discovery.classifier import classify
     from app.discovery.noise_filter import check as noise_check
     from app.discovery.fingerprinter import build_fingerprint
+
+    url_limit = 500 if deep else 200
 
     db = SessionLocal()
     try:
@@ -40,17 +41,17 @@ def run_discovery(run_id: str):
         seeds_crawled = 0
         candidates_found = 0
         rejected_count = 0
+        bred_count = 0
 
         for seed in seeds:
-            raw_urls = _run(crawl_url(seed.url))
+            raw_urls = _run(_crawl_seed_async(seed, deep=deep))
             seed.last_crawled = datetime.utcnow()
             seeds_crawled += 1
 
-            for url in raw_urls[:150]:
+            for url in raw_urls[:url_limit]:
                 # 1 — noise filter (no network needed)
                 passes, rejection_reason = noise_check(url, seed.url)
                 if not passes:
-                    # Only log rejections we haven't seen before (deduplicate by url+reason)
                     _log_rejection(db, url, rejection_reason, seed.url)
                     rejected_count += 1
                     continue
@@ -88,6 +89,7 @@ def run_discovery(run_id: str):
 
                 fp_data = build_fingerprint(url, clf.detected_type, clf.capabilities)
                 db.add(SourceFingerprint(discovered_source_id=ds.id, **fp_data))
+                bred_count += _breed_seeds(db, ds, seed)
                 candidates_found += 1
 
             db.commit()
@@ -96,7 +98,7 @@ def run_discovery(run_id: str):
         run.finished_at = datetime.utcnow()
         run.seeds_crawled = seeds_crawled
         run.candidates_found = candidates_found
-        run.notes = f"{rejected_count} URLs rejected by quality gate"
+        run.notes = f"{rejected_count} URLs rejected by quality gate; {bred_count} seeds bred"
         db.commit()
 
         return {
@@ -104,6 +106,7 @@ def run_discovery(run_id: str):
             "seeds_crawled": seeds_crawled,
             "candidates_found": candidates_found,
             "rejected": rejected_count,
+            "bred": bred_count,
         }
 
     except Exception as e:
@@ -118,6 +121,96 @@ def run_discovery(run_id: str):
         raise
     finally:
         db.close()
+
+
+async def _crawl_seed_async(seed, deep: bool = False) -> list[str]:
+    """Route a seed to the right crawler based on seed_type."""
+    import re as _re
+    from app.discovery.crawler import crawl_url, crawl_github_repo, crawl_reddit, crawl_github_search, crawl_github_user
+
+    timeout = 30.0 if deep else 15.0
+
+    if seed.seed_type in ("github_repo", "github"):
+        m = _re.match(r"https?://github\.com/([^/]+)/([^/?#]+)", seed.url)
+        if m:
+            return await crawl_github_repo(m.group(1), m.group(2), timeout=timeout)
+        return []
+    if seed.seed_type == "github_search":
+        from urllib.parse import urlparse, parse_qs, unquote_plus
+        qs = parse_qs(urlparse(seed.url).query)
+        query = unquote_plus(qs.get("q", [""])[0])
+        if query:
+            return await crawl_github_search(query, timeout=timeout)
+        return []
+    if seed.seed_type == "github_user":
+        m = _re.match(r"https?://github\.com/([^/]+)/?", seed.url)
+        if m:
+            return await crawl_github_user(m.group(1))
+        return []
+    if seed.seed_type == "reddit":
+        return await crawl_reddit(seed.url)
+    return await crawl_url(seed.url, timeout=timeout)
+
+
+def _breed_seeds(db, ds, seed) -> int:
+    """Derive new seeds from a quality-gate-passing candidate. Returns # added."""
+    from app.models.discovery import DiscoverySeed
+    import re as _re
+    from urllib.parse import urlparse
+
+    if seed.breed_depth >= 3:
+        return 0
+
+    new_seeds = []
+    next_depth = seed.breed_depth + 1
+
+    if seed.seed_type == "github_repo":
+        m = _re.match(r"https?://github\.com/([^/]+)/", seed.url)
+        if m:
+            owner = m.group(1)
+            new_seeds.append({
+                "url": f"https://github.com/{owner}",
+                "label": f"GitHub user: {owner}",
+                "seed_type": "github_user",
+                "category": seed.category,
+                "parent_seed_id": seed.id,
+                "is_bred": True,
+                "breed_depth": next_depth,
+            })
+
+    if ds.detected_type == "stremio_manifest":
+        parsed = urlparse(ds.url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if base.rstrip("/") != ds.url.rstrip("/"):
+            new_seeds.append({
+                "url": base,
+                "label": f"Stremio host: {parsed.netloc}",
+                "seed_type": "url",
+                "category": "stremio_ecosystem",
+                "parent_seed_id": seed.id,
+                "is_bred": True,
+                "breed_depth": next_depth,
+            })
+
+    if ds.detected_type in ("torznab", "newznab", "jackett", "prowlarr", "nzbhydra", "bitmagnet"):
+        parsed = urlparse(ds.url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        new_seeds.append({
+            "url": base,
+            "label": f"Indexer host: {parsed.netloc}",
+            "seed_type": "url",
+            "category": seed.category or "usenet",
+            "parent_seed_id": seed.id,
+            "is_bred": True,
+            "breed_depth": next_depth,
+        })
+
+    added = 0
+    for sd_data in new_seeds:
+        if not db.query(DiscoverySeed).filter(DiscoverySeed.url == sd_data["url"]).first():
+            db.add(DiscoverySeed(**sd_data))
+            added += 1
+    return added
 
 
 def _passes_quality_gate(clf) -> bool:
@@ -279,16 +372,53 @@ def cleanup_garbage_candidates():
 @celery_app.task(name="app.worker.tasks.scheduled_discovery")
 def scheduled_discovery():
     from app.models.discovery import DiscoveryRun, DiscoverySeed
+    from app.models.settings import AppSetting
     db = SessionLocal()
     try:
+        auto_setting = db.query(AppSetting).filter(AppSetting.key == "auto_discovery_enabled").first()
+        if auto_setting and auto_setting.value.lower() != "true":
+            return {"skipped": "auto_discovery_disabled"}
+
         if db.query(DiscoverySeed).filter(DiscoverySeed.enabled == True).count() == 0:
             return {"skipped": "no enabled seeds"}
+
+        active = db.query(DiscoveryRun).filter(DiscoveryRun.status.in_(["pending", "running"])).first()
+        if active:
+            return {"skipped": "run already active", "run_id": str(active.id)}
+
         run = DiscoveryRun(status="pending")
         db.add(run)
         db.commit()
         db.refresh(run)
         run_discovery.delay(str(run.id))
         return {"run_id": str(run.id)}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.worker.tasks.deep_discovery")
+def deep_discovery():
+    from app.models.discovery import DiscoveryRun, DiscoverySeed
+    from app.models.settings import AppSetting
+    db = SessionLocal()
+    try:
+        auto_setting = db.query(AppSetting).filter(AppSetting.key == "auto_discovery_enabled").first()
+        if auto_setting and auto_setting.value.lower() != "true":
+            return {"skipped": "auto_discovery_disabled"}
+
+        if db.query(DiscoverySeed).filter(DiscoverySeed.enabled == True).count() == 0:
+            return {"skipped": "no enabled seeds"}
+
+        active = db.query(DiscoveryRun).filter(DiscoveryRun.status.in_(["pending", "running"])).first()
+        if active:
+            return {"skipped": "run already active", "run_id": str(active.id)}
+
+        run = DiscoveryRun(status="pending")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_discovery.delay(str(run.id), deep=True)
+        return {"run_id": str(run.id), "deep": True}
     finally:
         db.close()
 
